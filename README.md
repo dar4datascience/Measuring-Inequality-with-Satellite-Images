@@ -27,8 +27,7 @@ In 2021, [Román et al. (2021)](https://ladsweb.modaps.eosdis.nasa.gov/missions-
 
 If you wish to learn more and download these data products visit the [LAADS DAAC website](https://ladsweb.modaps.eosdis.nasa.gov/search/order/2/VNP46A1--5000). Below a the tile grid used by the Black Marble Product Suite (Román et al. (2020):
 
-ADD PICTURE OF TILES HERE
-
+![Black Marble Tiles 35 horizontal and 17 vertical. The metropolitan zone of mexico city uses only h08 v07](https://github.com/dar4datascience/Measuring-Inequality-with-Satellite-Images/blob/main/proyect_snapshots/ntlGridRoman2020.jpg)
 
 #### Flexibility
 
@@ -41,9 +40,11 @@ Then using python, I extracted the layer of interest for the protype and transfo
 
 This process is poorly documented in `ReduceRasters.Rmd` and `HDF2GeoTiff.py`; I promise to be more clear in the next phase of the project.
 
-Below a raw image of how the downloaded tiles look; this particular tile is from the 28 of february, the day the first COVID-19 case was reported in Mexico (Milenio, 2020; ElPaís, 2020; BBC News, 2020). Next to the image is the result of combining daily values to yearly municipality data points. These two particular plots to the right show the change in __median night time light intensity__ from the VNP46A1 and __average per capita municipal income__ from 
+Below a raw image of how the downloaded tiles look; this particular tile is from the 28 of february, the day the first COVID-19 case was reported in Mexico (Milenio, 2020; ElPaís, 2020; BBC News, 2020). Next to the image is the result of combining daily values to yearly municipality data points. These two particular plots to the right show the change in __median night time light intensity__ from the VNP46A1 and __average per capita municipal income__ from Vargas Chanes D. (coord., 2020): La desigualdad y la estructura de la ocupación en la Ciudad de México, área metropolitana y zona centro.
 
 
+![3 maps. First to the left is a raw image where the cloudy formation are pixel level light intensity levels and the other two are municipal level readings of average per capita income and light intensity level of the municipalities of the metropolitan zone of mexico city](https://github.com/dar4datascience/Measuring-Inequality-with-Satellite-Images/blob/main/proyect_snapshots/resultsMap.jpg)
+ 
 #### Read the full research!
 
 If you got all the way down here you might be interesting in reading my bachelors thesis, were I go into depth about the Black Marble data and its potential from inequality research.
