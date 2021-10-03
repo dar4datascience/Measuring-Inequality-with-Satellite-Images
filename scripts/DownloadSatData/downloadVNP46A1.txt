@@ -14,7 +14,7 @@
 
 wget -e robots=off -m -np -R .html,.tmp -nH --cut-dirs=3 
 #	"https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/5000/VNP46A1/2020/001/" 
-#	--header "Authorization: Bearer ZWxkdXF1ZWRzZWFsYW5kOllXMXBaWFpoTG1SaGJtbGxiRUJqYjIxMWJtbGtZV1F1ZFc1aGJTNXRlQT09OjE2MTQyOTg4Mzc6NmIwNjFhNjgyYTY5Nzc5NjkzMTg3ODVhNjU3NjM2MjQ1MTAyNmM1Ng"
+#	--header "Authorization: Bearer YOUR_TOKEN"
 
 #-i download all from txt file
 wget -b -e robots=off -nH -np -R .html,.tmp --cut-dirs=3 -i [a file with a list of urls to the downloads] --header "Authorization: Bearer YOUR_TOKEN" -P .
