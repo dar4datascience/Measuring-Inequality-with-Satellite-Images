@@ -51,6 +51,10 @@ If you got all the way down here you might be interesting in reading my bachelor
 
 [PENDING LINK TO FINAL THESIS VERSION]
 
+Below a plot depicting the relationship between __average per capita municipal data__ with the aggregated __vnp46A1 median municipal__ values.
+
+
+ADD PLOT HERE
 
 ## STAGE 2: Massive data download of the VNP46A3 and A4
 
