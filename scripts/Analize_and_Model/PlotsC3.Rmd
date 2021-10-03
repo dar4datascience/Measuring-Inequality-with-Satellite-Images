@@ -1,0 +1,861 @@
+---
+title: "Plots for Chapter 1-2-3"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::html_clean:
+    highlight: kate
+---
+
+
+```{r setup, include=FALSE}
+library(knitr)
+library(ggplot2)
+library(stringr)
+library(forcats)
+library(dplyr)
+library(sf)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=FALSE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+
+here::i_am("Scripts/PlotsC3.Rmd")
+```
+
+
+
+```{r loadData}
+df_2015 <- read_sf(
+  here::here("Data/Outputs", "coalescedData2015.shp")
+)
+
+df_2020 <- read_sf(
+  here::here("Data/Outputs", "coalescedData2020.shp")
+)
+```
+
+
+```{r glimpse}
+glimpse(df_2015)
+glimpse(df_2020)
+
+```
+
+```{r fix2015}
+df_2015_tidy <- df_2015 %>% 
+  select(CVE_GEO, NOM_MUN, "median_sum_ntl" = mdn_sm_, "pob_total" = pob_ttl, Gini, "Mean_ictpc" = Mn_ctpc) %>% 
+  mutate(
+    pob_total = str_remove_all(pob_total, ",") %>% as.double(.)
+  )
+
+glimpse(df_2015_tidy)
+```
+
+## Add area var
+
+```{r area_var}
+df_2015_tidy <- df_2015_tidy %>%
+  mutate(
+    area = st_area(df_2015_tidy) %>% as.numeric(.)
+  )
+
+
+```
+
+## Box plot
+
+```{r boxplotntl}
+library(gghighlight)
+lowerq = quantile(df_2015_tidy$median_sum_ntl)[2]
+upperq = quantile(df_2015_tidy$median_sum_ntl)[4]
+iqr = upperq - lowerq #Or use IQR(data)
+mild.threshold.upper = (iqr * 1.5) + upperq
+
+out_which <- (df_2015_tidy$median_sum_ntl >= mild.threshold.upper)
+
+  
+ntl2015_boxplot <- df_2015_tidy %>%
+  ggplot(aes(x= 0, y= median_sum_ntl)) +
+# Default is to trim violins to the range of the data. To disable:
+  geom_violin(alpha = 1/2, color = "grey50", draw_quantiles = c(0.25,0.5, 0.75)) +
+  theme(
+    axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()
+  ) +
+  labs(x = "")
+
+
+ntl2015_boxplot
+
+boxplot2 <- df_2015_tidy %>%
+  ggplot(aes(x=0, y= median_sum_ntl)) +
+  geom_boxplot() + 
+  geom_point(col = "darkred") +
+    gghighlight(out_which,
+              use_direct_label = TRUE,
+              label_key = NOM_MUN,
+              label_params = list(size = 3)) +
+  scale_y_log10() +
+  theme(
+    axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()
+  ) +
+  labs(x = "")
+
+boxplot2
+```
+
+LOG TRANSFORM DE BOX PLOT
+
+```{r logboxplot}
+logntl2015_boxplot <- df_2015_tidy %>%
+  ggplot(aes(x= 0, y= median_sum_ntl)) +
+# Default is to trim violins to the range of the data. To disable:
+  geom_boxplot() + 
+  geom_point(col = "darkred") +
+  scale_y_log10() +
+  theme(
+    axis.ticks.x = element_blank(),
+        axis.text.x = element_blank()
+  ) +
+  labs(x = "")
+
+
+logntl2015_boxplot
+
+```
+
+
+## Barplot
+
+
+```{r barplotNTL}
+ntl2015_barplot <- df_2015_tidy %>%
+  arrange(median_sum_ntl) %>% 
+  ggplot(aes(x = fct_reorder(NOM_MUN, median_sum_ntl),y = median_sum_ntl)) +
+  geom_col() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= 5, color="black") +
+  labs(x="", y = "Valor medio NTL", title="Distribucion NTL mediana por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  )
+
+ntl2015_barplot
+```
+
+
+```{r logbarplotNTL}
+logntl2015_barplot <- df_2015_tidy %>%
+  arrange(median_sum_ntl) %>% 
+  ggplot(aes(x = fct_reorder(NOM_MUN, median_sum_ntl),y = median_sum_ntl)) +
+  geom_col() +
+  scale_y_log10() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= -0.4, color="white") +
+  labs(x="", y = "Valor medio NTL", title="Distribucion NTL mediana por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  )
+
+logntl2015_barplot
+```
+
+
+```{r barplotPoblacion}
+poblacion2015_barplot <- df_2015_tidy %>%
+  ggplot(aes(x = fct_reorder(NOM_MUN, pob_total),y = pob_total)) +
+  geom_col() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= 5, color="black") +
+  labs(x="", y = "# personas", title="Distribucion Poblacion total por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  )
+
+poblacion2015_barplot
+```
+
+```{r logbarplotPoblacion}
+logpoblacion2015_barplot <- df_2015_tidy %>%
+  ggplot(aes(x = fct_reorder(NOM_MUN, pob_total),y = pob_total)) +
+  geom_col() +
+  scale_y_log10() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= -0.6, color="white") +
+  labs(x="", y = "# personas", title="Distribucion Poblacion total por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  )
+
+logpoblacion2015_barplot
+```
+
+```{r barplotGini}
+Gini2015_barplot <- df_2015_tidy %>%
+  ggplot(aes(x = fct_reorder(NOM_MUN, Gini),y = Gini)) +
+  geom_col() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), color="black") +
+  labs(x="", y = "% desigualdad", title="Distribucion Gini por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  ) 
+Gini2015_barplot
+```
+
+```{r barplotArea}
+Area2015_barplot <- df_2015_tidy %>%
+  mutate(
+    area = as.double(area)
+  ) %>% 
+  ggplot(aes(x = fct_reorder(NOM_MUN, area),y = area)) +
+  geom_col() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= 5, color="black") +
+  labs(x="", y = "m2", title="Area por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  ) 
+
+Area2015_barplot
+```
+```{r logbarplotArea}
+LogArea2015_barplot <- df_2015_tidy %>%
+  mutate(
+    area = as.double(area)
+  ) %>% 
+  ggplot(aes(x = fct_reorder(NOM_MUN, area),y = area)) +
+  geom_col() +
+  scale_y_log10() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= -0.9, color="white") +
+  labs(x="", y = "m2", title="Distribucion Area m2 por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  )
+
+LogArea2015_barplot
+```
+
+```{r ingresoLog}
+Logingreso2015_barplot <- df_2015_tidy %>%
+  ggplot(aes(x = fct_reorder(NOM_MUN, Mean_ictpc),y = Mean_ictpc)) +
+  geom_col() +
+  scale_y_log10() +
+  coord_flip() + 
+  geom_text(aes(label = NOM_MUN), nudge_y= -0.9, color="white") +
+  labs(x="", y = "ingreso promedio por habitante", title="Distribucion Mean_ictpc por municipio") +
+  theme(
+  axis.text.y = element_blank(),
+  axis.ticks.y = element_blank()
+  )
+
+Logingreso2015_barplot
+```
+
+
+Values vary wildly in first place by different var.
+Can I show this somehow?
+
+## Correlation Map
+
+```{r computeMatrix}
+library(ggcorrplot)
+numeric_matrix <- df_2015_tidy %>%
+      mutate(
+    area = as.double(area)
+  ) %>% 
+  select(everything(), -c(CVE_GEO, NOM_MUN)) %>%
+  st_drop_geometry()
+
+corr <-  round(cor(
+    numeric_matrix
+  ), 1)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(numeric_matrix)
+```
+
+
+```{r corrPlot}
+ggcorrplot(corr, hc.order = TRUE, type = "upper",
+     outline.col = "white", lab = TRUE)
+
+ggcorrplot(corr, hc.order = TRUE,
+    type = "upper", p.mat = p.mat)
+```
+
+## 3D Plots
+
+```{r plots3d}
+library(rayshader)
+library(viridis)
+
+gg_mx2015NTL <- ggplot() + 
+  geom_sf(data = df_2015_tidy, aes(fill = median_sum_ntl)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+par(mfrow = c(1, 2))
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+
+```
+
+```{r logplots3d}
+library(rayshader)
+library(viridis)
+library(ggsn)
+library(patchwork)
+
+gg_mx2015NTL <- ggplot() + 
+  geom_sf(data = df_2015_tidy, aes(fill = median_sum_ntl)) +
+  scico::scale_fill_scico(palette = 'berlin') +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank()) +
+  labs(title = "a) valores NTL originales")
+
+north_gg_mx2015NTL <- gg_mx2015NTL +
+      blank() +
+    north(df_2015_tidy)
+
+log_gg_mx2015NTL <- ggplot() + 
+  geom_sf(data = df_2015_tidy, aes(fill = log(median_sum_ntl))) +
+  scico::scale_fill_scico(palette = 'berlin') +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank()) +
+  labs(title = "b) transformación log")
+
+
+north_log_gg_mx2015NTL <- log_gg_mx2015NTL +
+      blank() +
+    north(df_2015_tidy)
+
+
+PatchChange <- (north_gg_mx2015NTL + north_log_gg_mx2015NTL)
+PatchChange
+
+
+```
+
+## Simple maps
+
+```{r ntlmap}
+median_sum_ntl_plot <- plot(df_2015_tidy["median_sum_ntl"], key.pos = 1)
+
+logNTL <- df_2015_tidy %>%
+  mutate(
+    log_median_sum_ntl = log(median_sum_ntl)
+  ) 
+
+logntl_plot <- plot(logNTL["log_median_sum_ntl"], key.pos=1)
+
+old.par <- par(mfrow=c(1, 2))
+
+par(mfrow = c(1, 2))
+plot(df_2015_tidy["median_sum_ntl"], key.pos = 1, main = "Mediana NTl", ylab="nW·cm^{-2} ·sr^{-1}")
+plot(logNTL["log_median_sum_ntl"], key.pos=1, main = "log(Mediana NTL)")
+```
+
+# Scatter plot Correlation
+
+
+```{r ScatterCorrMatrix}
+library(psych)
+df_areanumeric <- df_2015_tidy %>% 
+  mutate(
+    area = as.numeric(area)
+  )%>%
+  select(Gini, Mean_ictpc, median_sum_ntl, pob_total, area)
+  
+  
+pairs.panels(st_drop_geometry(df_areanumeric), 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             lm = TRUE,
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+```
+
+```{r LogScatterCorrMatrix}
+library(psych)
+logdf2015 <- df_2015_tidy %>% 
+  mutate(
+    log_area = as.numeric(area) %>% log10(),
+    log_ntl = log10(median_sum_ntl),
+    log_pop = log10(pob_total),
+    log_ingreso_prom = log10(Mean_ictpc)
+  ) %>%
+  select(NOM_MUN, Gini, log_ingreso_prom, log_ntl, log_pop, log_area)
+  
+  
+pairs.panels(st_drop_geometry(logdf2015 %>% select(-NOM_MUN)), 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             lm = TRUE,
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+```
+
+# Dispersion entre ingreso y NTL
+
+Las variables de principal interes
+
+```{r DispIngresoNTL}
+library(ggExtra)
+library(ggplot2)
+library(ggrepel)
+
+DispIngresNTL_text <- ggplot(logdf2015, aes(x=log_ntl, y=log_ingreso_prom)) +
+      geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x) +
+    geom_text(
+    label= logdf2015$NOM_MUN, 
+    nudge_x = 0.15, nudge_y = 0.15, 
+    check_overlap = T
+  ) +
+      theme(legend.position="none") 
+
+marginalDispIngresNTL_text <-  ggMarginal(p = DispIngresNTL_text, type = "density")
+
+DispIngresNTL_repel <- ggplot(logdf2015, aes(x=log_ntl, y=log_ingreso_prom, label = NOM_MUN)) +
+  geom_text_repel(max.overlaps = 5) +
+      geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x)+
+      theme(legend.position="none") +
+  theme_bw() +
+  labs(x = "log(mediana NTL)", y = "log(Ingreso Promedio per cápita)")
+
+marginalDispIngresNTL_repel <-  ggMarginal(p = DispIngresNTL_repel, type = "histogram")
+ 
+DispIngresNTL_repel
+marginalDispIngresNTL_text
+marginalDispIngresNTL_repel
+ggsave(here::here("Data/Plots", "marginalNTLtoIngreso.png"))
+```
+
+
+
+# per capita calculations
+ 
+```{r densityMutate}
+log_percapita_df2015 <- df_2015_tidy %>% 
+  mutate(
+    area_porhabitante = as.numeric(area) / pob_total ,
+    ntl_porhabitante = median_sum_ntl / pob_total,
+    logareaxHabitante = log(area_porhabitante),
+    logntlxHabitante = log(ntl_porhabitante),
+    logingresoxHabitante = log(Mean_ictpc)
+  ) %>%
+  select(Mean_ictpc, logingresoxHabitante, median_sum_ntl, ntl_porhabitante, logntlxHabitante, area)
+  
+  
+pairs.panels(st_drop_geometry(log_percapita_df2015), 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             lm = TRUE,
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+```
+```{r areaMutation}
+log_perarea_df2015 <- df_2015_tidy %>% 
+  mutate(
+    pob_porarea = pob_total/as.numeric(area)  ,
+    ntl_porarea = median_sum_ntl / as.numeric(area),
+    log_ntl = log(median_sum_ntl),
+    logpobxarea = log(pob_porarea),
+    logntlxarea = log(ntl_porarea),
+    logingresoxHabitante = log(Mean_ictpc),
+    logingresoxarea = log(Mean_ictpc / as.numeric(area))
+  ) %>%
+  select(logingresoxHabitante,logingresoxarea, median_sum_ntl,log_ntl, logntlxarea, pob_porarea, logpobxarea)
+  
+  
+pairs.panels(st_drop_geometry(log_perarea_df2015), 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             lm = TRUE,
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+```
+## Map per capita
+
+```{r 3dPerCAP}
+library(rayshader)
+library(viridis)
+
+gg_mx2015NTL <- ggplot() + 
+  geom_sf(data = log_percapita_df2015, aes(fill = ntl_porhabitante)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+par(mfrow = c(1, 2))
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+
+```
+
+## Test normality
+
+```{r qqplot}
+library(ggpubr)
+ggqqplot(df_2015_tidy %>% pull(median_sum_ntl))
+```
+
+```{r shapiroTest}
+library(broom)
+test_normality <- apply(
+  st_drop_geometry(logdf2015) %>% select(log_ntl, log_ingreso_prom, log_pop, log_area), 2, function(x) tidy(shapiro.test(x))) %>% bind_rows() %>% 
+  mutate(
+    variable = c("Log(Mediana NTL)", "Log(Ingreso promedio)", "Log(Población)", "Log(Área)")
+  ) %>% 
+  select(variable, everything())
+
+test_normality 
+```
+```{r gtShapiro}
+library(gt)
+
+gtShapiro <- test_normality %>% 
+  select(-method, "Variable" = variable, "Valor W" = statistic, "Valor p" = p.value) %>% 
+  gt() %>% 
+  fmt_number(
+    columns = c("Valor W", "Valor p"),
+    decimals = 4
+  ) %>% 
+  opt_table_font(font = "Times New Roman")
+
+gtShapiro
+```
+
+
+
+## Top values
+
+```{r toplowvalues}
+library(gt)
+
+table_2015_data <- df_2015_tidy %>% 
+  mutate(
+    estado = case_when(
+      stringr::str_sub(CVE_GEO,1,2) == "09" ~ "Ciudad de Mexico",
+      stringr::str_sub(CVE_GEO,1,2) == "15" ~ "Estado de Mexico",
+      TRUE ~ "Hidalgo"
+    )
+  )
+
+top5_values2015 <- table_2015_data  %>% 
+  top_n(median_sum_ntl, n = 5)
+
+
+low5_values2015 <- table_2015_data %>% 
+  arrange(median_sum_ntl, ascending=TRUE) 
+
+
+top5low5_2015 <- rbind(top5_values2015, low5_values2015[1:5,]) %>% 
+  select(estado,NOM_MUN, median_sum_ntl, Mean_ictpc, pob_total, area) %>% st_drop_geometry() %>% 
+  arrange(desc(median_sum_ntl))
+```
+
+```{r buildtablegt}
+table <- top5low5_2015 %>%
+ select("Municipio" = NOM_MUN, estado, "Mediana anual NTL" = median_sum_ntl, "Ingreso promedio" = Mean_ictpc,  "Población" = pob_total, "Área" = area) %>%  
+  gt(
+    rowname_col = "Municipio",
+    groupname_col = "estado") %>% 
+  fmt_number(
+    columns = c(3,5, 6),
+    decimals  = 2
+  ) %>% 
+   fmt_currency(
+    columns = 4,
+    currency = "MXN",
+    decimals = 2
+  ) %>% 
+  cols_align(
+  align = c("center"),
+  columns = c("Mediana anual NTL", "Ingreso promedio", "Población", "Área")
+  ) 
+```
+
+
+## All values table
+
+```{r allvaluestable}
+library(gtsummary)
+library(flextable)
+allvalues_2015_data <- df_2015_tidy  %>%
+  mutate(
+    estado = case_when(
+      stringr::str_sub(CVE_GEO, 1, 2) == "09" ~ "Ciudad de Mexico",
+      stringr::str_sub(CVE_GEO, 1, 2) == "15" ~ "Estado de Mexico",
+      TRUE ~ "Hidalgo"
+    )
+  ) %>%
+  select(
+    "Municipio" = NOM_MUN,
+    estado,
+    "Mediana anual NTL" = median_sum_ntl,
+    "Ingreso promedio" = Mean_ictpc,
+    "Población" = pob_total,
+    "Área" = area
+  ) %>%
+  st_drop_geometry() %>%
+  arrange(desc(`Mediana anual NTL`), desc(`Ingreso promedio`)) %>%
+  gt(rowname_col = "Municipio",
+     groupname_col = "estado") %>%
+  fmt_number(columns = c(3, 5, 6),
+             decimals  = 2) %>%
+  fmt_currency(columns = 4,
+               currency = "MXN",
+               decimals = 2) %>%
+  cols_align(
+    align = c("center"),
+    columns = c("Mediana anual NTL", "Ingreso promedio", "Población", "Área")
+  )
+
+
+```
+
+```{r flexAll}
+alltable <- df_2015_tidy  %>%
+  mutate(
+    estado = case_when(
+      stringr::str_sub(CVE_GEO, 1, 2) == "09" ~ "Ciudad de México",
+      stringr::str_sub(CVE_GEO, 1, 2) == "15" ~ "Estado de México",
+      TRUE ~ "Hidalgo"
+    )
+  ) %>%
+  select(
+    "Municipio" = NOM_MUN,
+    "Estado" = estado,
+    "Mediana NTL anual" = median_sum_ntl,
+    "Ingreso promedio $" = Mean_ictpc,
+    "Población" = pob_total,
+    "Área m2" = area
+  ) %>%
+  st_drop_geometry() %>%
+  arrange(desc(`Mediana NTL anual`), desc(`Ingreso promedio $`)) 
+
+outliers_in_standarized_residuals <- which(alltable$Municipio == "Miguel Hidalgo" | alltable$Municipio == "Benito Juárez" | alltable$Municipio == "Chimalhuacán")
+
+flex_appendix <- alltable %>% 
+                    flextable() %>% 
+                      theme_vanilla() %>% 
+                    color(i = outliers_in_standarized_residuals,
+                          color = "red")
+  
+flex_appendix <- bold(flex_appendix, bold = TRUE) 
+```
+
+## HIGHLIGHT
+Eliminamos Miguel Hidalgo, Benito Juarez y Chimalhuacan. Los dos primeros son muy ricos y el otro es muy brillante para tan pobre que es.
+
+## Print to word all values
+
+```{r apendix2word}
+library(officer)
+read_docx() %>% 
+  body_add_flextable(value = flex_appendix) %>% 
+  print(target = "AllData4Appendix.docx")
+```
+
+OR
+
+save_as_docx(ft,  "ft.docx")
+
+# Plot data
+
+## WID Mex data
+
+```{r wid-data}
+inequality_mex_all <- readr::read_delim(
+  here::here("Data", "WID_data_mex.csv"), skip = 1, ";", escape_double = FALSE, trim_ws = TRUE
+)
+
+inequality_mex_dictionary <- readr::read_delim(
+  here::here("Data", "WID_metadata_mex.csv"), skip = 1, ";", escape_double = FALSE, trim_ws = TRUE
+)
+
+colnames(inequality_mex_all) <- c('Percentile', 'Year', 'Value')
+```
+Value is inequality as percentage of people living on the variable described
+```{r WIDplot}
+inequality_mex_all$Percentile <- forcats::as_factor(inequality_mex_all$Percentile) %>% 
+  forcats::fct_recode("Top 1%" = "p99p100", 
+                      "Top 10%" = "p90p100",
+                      "Middle 40%" = "p50p90",
+                      "Bottom 50%" = "p0p50"
+  ) 
+
+inequality_mex_all$Percentile <- inequality_mex_all$Percentile %>% 
+  forcats::fct_relevel(c("Top 1%", "Top 10%", "Middle 40%", "Bottom 50%"))
+
+
+WID_plot <- inequality_mex_all %>%
+  ggplot(aes(Year, Value, group=Percentile)) +
+  geom_point(aes(shape =Percentile)) +
+  geom_line(aes(linetype = Percentile)) +
+  labs(y = "Participación del ingreso total (%)", x = "Año") +
+  theme_bw()
+
+WID_plot
+
+ggsave(
+  here::here("Data/Plots","WID_plot_mex.png")
+)
+```
+
+
+## Trimestral Groth
+
+```{r loadgqpgrowth}
+library(readxl)
+Eco_Growth_Trimestres2020_raw <- read_excel(
+  here::here("Data", "Eco_Growth_Trimestres2020.xlsx"), 
+                                            sheet = "QuarterQDP")
+
+Eco_Growth_Trimestres2020 <- Eco_Growth_Trimestres2020_raw %>%
+  mutate(
+    trimestre_ano = paste0(
+      as.character(Año), " ", Trimestre)
+    )
+
+Eco_Growth_Trimestres2020_tidy <- Eco_Growth_Trimestres2020[1:24,c(1:5,12)]
+```
+
+```{r plotQ2Q}
+library(ggplot2)
+library(scales)
+library(gghighlight)
+
+q2q_plot <- Eco_Growth_Trimestres2020_tidy %>%
+  group_by(Pais, trimestre_ano) %>%
+  ggplot(aes(trimestre_ano, gdp_growth_q_2_q, group=Pais,
+             color=Pais)) +
+  geom_line(aes(linetype = Pais)) +
+  geom_point(aes(shape = Pais,
+                 size = gdp_growth_q_2_q)) +
+  guides(size=FALSE)  +
+  gghighlight::gghighlight(Pais == "Mexico") +
+  xlab("") +
+  ylab("tasa de crecimiento trimestral %") +
+  theme_bw() 
+
+ggsave(
+  here::here("Data/Plots","gdpgrowthq2qVariousCountries.png")
+)
+
+q2q_plot
+```
+
+## Participacion en el ingreso total Zona conurbada de la CDMX y Mexico
+
+```{r loadPIBEData}
+Pibe_conurbado19802019 <- openxlsx::read.xlsx(
+  here::here("Data/PIBE_INEGI", "PIBE_Conurbado_19802019.xlsx")
+) 
+
+```
+
+```{r transformPIBE}
+library(tidyr)
+Pibe_numerico <-apply(Pibe_conurbado19802019[-c(5,6), -1], 2, function(x) as.numeric(x)) 
+
+PIBE_anual_conurbado <- cbind(Pibe_conurbado19802019[-c(5,6),1], Pibe_numerico) %>% 
+  as.data.frame() %>% 
+  pivot_longer(cols = !1, names_to = "Año", values_to = "PIB")
+
+colnames(PIBE_anual_conurbado)[1] <- "Estado"
+
+PIBE_anual_conurbado_grouped <- PIBE_anual_conurbado %>% 
+  mutate(
+    PIB = as.numeric(PIB)
+  )
+
+```
+
+```{r plotPIBE}
+PIBE_anual_conurbado_grouped$Estado <- factor(PIBE_anual_conurbado_grouped$Estado,
+                                              levels = c("Republica Mexicana", "Ciudad de México", "Estado de México", "Hidalgo")
+)
+
+plot_pibeConurbado <- PIBE_anual_conurbado_grouped %>% 
+  ggplot(aes(x = Año, y = PIB, fill = Estado, order=Estado)) + 
+  geom_col(position = position_fill(reverse = TRUE)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank()) +
+  coord_cartesian(ylim = c(0.7, 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  xlab("") +
+  ylab("Participación % del PIB") +
+geom_hline(yintercept=0.79, linetype="dashed", color = "red", size = 2) +
+  geom_hline(yintercept=0.92, linetype="dashed", color = "red", size = 2) +
+  geom_hline(yintercept=0.99, linetype="dashed", color = "red", size = 2) +
+    scale_fill_grey() +
+  annotate("text", "2019<P>", 0.99, vjust = -0.1, hjust = 0.5, label = "99.0%") +
+  annotate("text", "2000", 0.92, vjust = -0.5, label = "92.0%")+
+  annotate("text", "1986", 0.79, vjust = -0.5, label = "79.0%") + guides(fill = guide_legend(reverse = TRUE))
+
+plot_pibeConurbado
+
+ggsave(
+  here::here("Data/Plots","Pibe_Conurbado_1980_2020.png")
+)
+```
+

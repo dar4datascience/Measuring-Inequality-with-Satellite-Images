@@ -1,0 +1,23 @@
+#nH disables host-prexied directories...  By default, invoking Wget with ‘-r http://fly.srk.fer.hr/’ will create a structure of directories beginning with fly.srk.fer.hr/. This option disables such behavior.
+#-c Your download can get interrupted if you lose the internet connection or experience a power outage
+#-b for download in background. A wget-log will appear in your working directory, which can be used to check your download progress and status
+#-P saves files in specified directory
+#-e Execute command as if it were a part of .wgetrc (see Startup File). A command thus invoked will be executed after the commands in .wgetrc, thus taking precedence over them. If you need to specify more than one wgetrc command, use multiple instances of ‘-e’. 
+#robot=off DONT TOUCH is to avoid wandering the website and bothering the admins with stolen resources
+#-np no parent Do not ever ascend to the parent directory when retrieving recursively. This is a useful option, since it guarantees that only the files below a certain hierarchy will be downloaded.
+#-m to keep a mirror of a page (or FTP subdirectories) COULD REMOVE..
+#-r Turn on recursive retrieving.
+#-R rejlist, --reject rejlist
+#--cut-dirs Ignore number directory components. This option is useful for getting a fine-grained control over the directory where recursive retrieval will be saved.
+#URL_BASE="https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/5000/VNP46A1/2020/"
+#WGET_OPTS='-c -b -e robots=off -m -np -R .html,.tmp -nH --cut-dirs=3'
+
+wget -e robots=off -m -np -R .html,.tmp -nH --cut-dirs=3 
+#	"https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/5000/VNP46A1/2020/001/" 
+#	--header "Authorization: Bearer ZWxkdXF1ZWRzZWFsYW5kOllXMXBaWFpoTG1SaGJtbGxiRUJqYjIxMWJtbGtZV1F1ZFc1aGJTNXRlQT09OjE2MTQyOTg4Mzc6NmIwNjFhNjgyYTY5Nzc5NjkzMTg3ODVhNjU3NjM2MjQ1MTAyNmM1Ng"
+
+#-i download all from txt file
+wget -b -e robots=off -nH -np -R .html,.tmp --cut-dirs=3 -i [a file with a list of urls to the downloads] --header "Authorization: Bearer YOUR_TOKEN" -P .
+
+
+LEARN MORE ABOUT GNU WGET AT https://ladsweb.modaps.eosdis.nasa.gov/tools-and-services/data-download-scripts/

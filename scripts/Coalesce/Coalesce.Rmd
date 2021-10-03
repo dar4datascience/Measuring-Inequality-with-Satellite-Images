@@ -1,0 +1,198 @@
+---
+title: "Coalesce"
+author: "Daniel Amieva Rdz"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::material:
+    highlight: kate
+    self_contained: true
+    code_folding: show
+    thumbnails: true
+    gallery: true
+    fig_width: 4
+    fig_height: 4
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE
+)
+
+library(sf)
+library(dplyr)
+library(plotly)
+library(stringr)
+
+here::i_am("Scripts/Coalesce_DataSources/Coalesce.Rmd")
+```
+
+# Load Data
+
+```{r loadCensusData2020}
+cdmx_census2020_data <-
+  read.csv(
+    here::here("Data/CensoInegi2020", "cdmx_ageb_urbana_2020.csv"),
+    encoding="UTF-8"
+  )
+edomex_census2020_data <-
+  read.csv(
+    here::here("Data/CensoInegi2020", "EstadoDMexico_ageb_urbana.csv"),
+    encoding="UTF-8"
+  )
+hidalgo_census2020_data <-
+  read.csv(
+    here::here("Data/CensoInegi2020", "Hidalgo_ageb_urbana.csv"),
+    encoding="UTF-8"
+  )
+```
+
+```{r loadcensus2015}
+zmcm_census2015_data_raw <-
+  read.csv(
+    here::here("Data/EncuestaIntercensal2015", "Poblacion_ZCMC_2015.csv"),
+    encoding="UTF-8"
+  ) %>%
+  filter(Estimador == "Valor") 
+
+colnames(zmcm_census2015_data_raw)[1] <- "cveNombreEntidad"
+
+zmcm_census2015_data <- zmcm_census2015_data_raw %>% 
+  mutate(
+    cve_entidad = str_sub(cveNombreEntidad, 1, 2),
+    cve_municipio = str_sub(Delegación, 1, 3),
+    cve_geo = paste0(cve_entidad, cve_municipio)
+  ) %>%
+  select(!c("X","X.1"))
+
+```
+
+
+
+```{r ntl-data}
+
+municipios_ntl_2015 <- sf::read_sf(
+  here::here("Data/Outputs", "NTL_2015_stats.shp")
+)
+
+municipios_ntl_2020 <- sf::read_sf(
+  here::here("Data/Outputs", "NTL_2020_stats.shp")
+)
+```
+
+## Subset data
+
+
+```{r loadDocData}
+df_desigualdadMunicipal <- haven::read_dta(
+  here::here("Data", "Datos_EBPHrururb_IndDes_Municipal.dta"
+             )
+  )
+
+claves_geomunicipales <- df_desigualdadMunicipal$cve_mun
+
+head(claves_geomunicipales)
+class(claves_geomunicipales)
+```
+
+Inequality data ready
+
+### Filter Municipios
+
+```{r filter2015Data}
+zmcm_2015_mun <- zmcm_census2015_data %>%
+  filter(cve_geo %in% claves_geomunicipales) %>%
+  mutate(
+    Delegación = str_remove(Delegación, regex("[0-9]{3} "))
+  ) %>%
+  select(2, 5, 8)
+```
+
+
+```{r filter2020Data}
+tres_estados2020_fails <- rbind(cdmx_census2020_data, edomex_census2020_data, hidalgo_census2020_data) %>%
+  select(1:9) %>%
+  filter(NOM_LOC == "Total del municipio") %>% 
+  select(!c("AGEB", "MZA", "LOC")) %>%
+  filter(NOM_MUN %in% zmcm_2015_mun$Delegación)
+
+colnames(tres_estados2020_fails)[1] <- "cve_entidad"
+
+
+mask <- (zmcm_2015_mun$Delegación %in% tres_estados2020_fails$NOM_MUN)
+
+zmcm_2015_mun$Delegación[!mask]
+
+mask_papalotla <- (zmcm_2015_mun$Delegación == "Papalotla *")
+
+zmcm_2015_mun$Delegación[mask_papalotla] <- "Papalotla"
+
+tres_estados2020 <- rbind(cdmx_census2020_data, edomex_census2020_data, hidalgo_census2020_data) %>%
+  select(1:9) %>%
+  filter(NOM_LOC == "Total del municipio") %>% 
+  select(!c("AGEB", "MZA", "LOC")) %>%
+  filter(NOM_MUN %in% zmcm_2015_mun$Delegación)
+
+colnames(tres_estados2020)[1] <- "cve_entidad"
+```
+Population data ready
+
+# NTL Data
+
+Change NAs to 0
+
+```{r fill-na}
+municipios_ntl_2015_clean <- municipios_ntl_2015 %>%
+  mutate(mdn_ntl = coalesce(mdn_ntl, 0),
+         men_ntl = coalesce(men_ntl, 0),
+         max_ntl = coalesce(max_ntl, 0),
+         min_ntl = coalesce(min_ntl,0),
+         median_sum_ntl = coalesce(mdn_sm_, 0)
+         )
+
+municipios_ntl_2020_clean <- municipios_ntl_2020 %>%
+  mutate(mdn_ntl = coalesce(mdn_ntl, 0),
+         men_ntl = coalesce(men_ntl, 0),
+         max_ntl = coalesce(max_ntl, 0),
+         min_ntl = coalesce(min_ntl,0),
+         median_sum_ntl = coalesce(mdn_sm_,0)
+         )
+
+knitr::kable(municipios_ntl_2020)
+```
+
+## Coalesce 2015 data
+
+Utilizando los tabulados de la encuesta intercensal 2015 podemos extraer los totales para cada municipio en la zona metropolitana
+
+```{r coalesce2015}
+df_2015 <- municipios_ntl_2015_clean %>%
+  select(CVE_GEO, NOM_MUN, median_sum_ntl, geometry) %>%
+  inner_join(zmcm_2015_mun, by = c("CVE_GEO" = "cve_geo")) %>%
+  inner_join(df_desigualdadMunicipal, by = c("CVE_GEO" = "cve_mun")) %>% 
+  select(!c("Delegación", "VarLog", "Municipio_o_Delegación", "Entidad")) %>% 
+  select(everything(), geometry)
+
+colnames(df_2015)[5] <- "pob_total"
+```
+
+## Coalesce 2020 data
+
+```{r coalesce2020}
+df_2020 <- municipios_ntl_2020_clean %>%
+  select(CVE_GEO, NOM_MUN, median_sum_ntl, geometry) %>%
+  inner_join(tres_estados2020, by = c("NOM_MUN")) %>%
+  select(!c("NOM_ENT","cve_entidad", "MUN", "NOM_LOC")) %>% 
+  select(everything(), geometry)
+```
+
+## Save Coalesced datasets as shapefiles
+
+```{r saveData}
+st_write(df_2015,
+         here::here("Data/Outputs", "coalescedData2015.shp")
+         ,delete_layer = TRUE)
+
+st_write(df_2020,
+         here::here("Data/Outputs", "coalescedData2020.shp")
+         , delete_layer = TRUE)
+```

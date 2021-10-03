@@ -1,0 +1,1235 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup}
+library(dplyr)
+library(tidymodels)
+library(gtsummary)
+library(flextable)
+library(performance)
+library(ggplot2)
+library(sf)
+library(dotwhisker)
+
+here::i_am("Scripts/econometric_analysis.Rmd")
+
+```
+
+# Review Data
+
+## Load 2015 data
+
+
+```{r loadData}
+df_2015 <- read_sf(
+  here::here("Data/Outputs", "coalescedData2015.shp")
+) %>%  
+  mutate(
+  area = st_area(.)
+) 
+
+df_2020 <- read_sf(
+  here::here("Data/Outputs", "coalescedData2020.shp")
+) %>%  
+  mutate(
+  area = st_area(.)
+)
+```
+
+## Glimpse data
+
+```{r skimData2015}
+df_2015 %>% 
+  skimr::skim()
+```
+2 columns dont have the correct type: pop y area
+
+## Convert Columns to correct type
+
+```{r colnamesAndTypes2015}
+colnames(df_2015)[3:9] <- c("median_sum_ntl", "pob_total", "Gini", "Theil", "Ingreso_prom_percap", "geometry","area")
+
+df_2015_tidy <- df_2015 %>%
+  mutate(
+    area = as.numeric(area),
+    pob_total = stringr::str_remove_all(pob_total, ",") %>% as.double(.)
+  ) %>% 
+  select(!c("Theil", "CVE_GEO"))
+
+df_2015_tidy %>% 
+  select(!Gini) %>% 
+  skimr::skim()
+```
+```{r, eval=FALSE}
+df_2015 %>% 
+  st_drop_geometry() %>% 
+  tbl_summary(type = list(c(area) ~ "continuous"))
+```
+# Modeling 
+
+## Using tidymodels [PENDING]
+
+```{r recipeDef, eval=FALSE}
+model_recipe <- recipe(Ingreso_prom_percap ~ median_sum_ntl + pob_total + area, data = df_2015_tidy) %>%
+  update_role(geometry,new_role = "ID") %>% 
+  step_center(where(is.numeric)) %>%
+  step_scale(where(is.numeric)) %>%
+  step_log(where(is.numeric), base = 10) 
+
+
+summary(model_recipe)
+```
+
+With tidymodels, we start by specifying the functional form of the model that we want using the parsnip package. Since there is a numeric outcome and the model should be linear with slopes and intercepts, the model type is “linear regression”. We can declare this with:
+
+```{r modelType, eval=FALSE}
+lm_mod <- 
+  linear_reg() %>% 
+  set_engine("lm")
+```
+
+```{r modelfitLog, eval=FALSE}
+lm_wflow <- 
+  workflow() %>% 
+  add_model(lm_mod) %>% 
+  add_recipe(model_recipe)
+
+lm_fit <- 
+  lm_wflow %>% 
+  fit(data = df_2015_tidy)
+```
+
+```{r plot_fitData, eval=FALSE}
+plot(lm_fit$pre$mold$predictors$median_sum_ntl)
+```
+
+### Model statistics and comparison
+
+```{r WhiskerPlot, eval=FALSE}
+tidy(lm_fit) %>% 
+  dwplot(dot_args = list(size = 2, color = "black"),
+         whisker_args = list(color = "black"),
+         vline = geom_vline(xintercept = 0, colour = "grey50", linetype = 2))
+```
+
+
+### Looking at the coefficients of the best model
+
+```{r tidyModelResults, eval=FALSE}
+tidy(lm_fit, conf.int = TRUE)
+```
+```{r glanceR2, eval=FALSE}
+broom::glance(lm_fit)
+```
+```{r, eval=FALSE }
+lm_fit %>% 
+  pull_workflow_fit() %>% 
+  tidy()
+```
+
+## lm way
+
+### Write formulas for models
+
+```{r modelFormulas}
+null_model_formula <- (log_ingresoprom ~ 1)
+base_model_formula <- (log_ingresoprom ~ log_median_ntl)
+extended_model_formula <- (log_ingresoprom ~ log_median_ntl + log_area + log_pob)
+nopob_model_formula <- (log_ingresoprom ~ log_median_ntl + log_area)
+```
+
+
+### Log transform data
+
+```{r logTransform}
+log_df2015 <- df_2015_tidy %>% 
+  transmute(
+  log_ingresoprom = log10(Ingreso_prom_percap),
+  log_median_ntl = log10(median_sum_ntl),
+  log_pob =  log10(pob_total),
+  log_area = log10(area)
+  )
+```
+
+### Data correlations
+
+```{r corrCalc}
+library(ggcorrplot)
+corr <-  round(cor(
+    log_df2015 %>% st_drop_geometry()
+  ), 1)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(log_df2015 %>% st_drop_geometry())
+
+ggcorrplot(corr, hc.order = TRUE,
+    type = "upper", p.mat = p.mat)
+```
+
+```{r PairCorrsPanel}
+library(psych)
+pairs.panels(st_drop_geometry(log_df2015), 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             lm = TRUE,
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+             )
+pairs.panels(st_drop_geometry(df_2015_tidy[,-1] %>% select(Gini, Ingreso_prom_percap, median_sum_ntl, everything())), 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             lm = TRUE,
+             density = TRUE,  # show density plots
+             ellipses = TRUE
+             )
+```
+
+
+
+
+### Build the models
+
+```{r build_models}
+null_model <- lm(null_model_formula, data=log_df2015)
+base_model <- lm(base_model_formula, data=log_df2015)
+extended_model <- lm(extended_model_formula, data= log_df2015)
+noPob_model <- lm(nopob_model_formula, data= log_df2015)
+no_ntlmodel <- lm(log_ingresoprom ~ log_pob + log_area, data=log_df2015)
+```
+
+
+### Model results
+
+#### null model
+
+```{r nullmodel_stats}
+library(broom)
+
+glance(null_model)
+as_flextable(null_model)
+```
+
+
+#### base model
+
+```{r base_model_stats}
+glance(base_model)
+tidy(base_model)
+tbl_regression(base_model)
+as_flextable(base_model)
+```
+
+
+#### extended model
+
+```{r extended_model_stats}
+as_flextable(extended_model)
+```
+
+
+#### no Population model
+
+```{r noPob_model_stats}
+as_flextable(noPob_model)
+```
+#### No NTL model
+```{r}
+as_flextable(no_ntlmodel)
+```
+
+### Resumen de los modelos en tabla
+
+A continuacion, se muestran los resultados para los modelos base, extendido y sin poblacion.
+
+```{r extractCoefs}
+library(parameters)
+base_coefs <- base_model %>%
+  parameters()
+```
+
+```{r extractR2}
+twodecimalFunc <- function(x){
+  format(round(x, 2), nsmall = 2)
+}
+
+base_r2 <- twodecimalFunc(summary(base_model)$r.squared)
+
+extended_r2 <- twodecimalFunc(summary(extended_model)$r.squared)
+
+no_pob_r2 <- twodecimalFunc(summary(noPob_model)$r.squared)
+
+no_ntl_r2 <- twodecimalFunc(summary(no_ntlmodel)$r.squared)
+
+base_radjust2 <- summary(base_model)$adj.r.squared
+
+extended_radjust2 <- summary(extended_model)$adj.r.squared
+
+no_pob_radjust2 <- summary(noPob_model)$adj.r.squared
+
+no_ntl_radjust2 <- summary(no_ntlmodel)$adj.r.squared
+```
+
+```{r MallowsCoefi}
+library(olsrr)
+mallow_base <- ols_mallows_cp(base_model, extended_model)
+mallow_noPob <- ols_mallows_cp(noPob_model, extended_model)
+mallow_extended <- ols_mallows_cp(extended_model, extended_model)
+mallow_noNTL <- ols_mallows_cp(no_ntlmodel, extended_model)
+```
+
+```{r AICBIC}
+aic_base_model <- AIC(base_model)
+aic_noPob_model <- AIC(noPob_model)
+aic_Extended_model <- AIC(extended_model)
+aic_noNTL_model <- AIC(no_ntlmodel)
+
+bic_base_model <- BIC(base_model)
+bic_noPob_model <- BIC(noPob_model)
+bic_Extended_model <- BIC(extended_model)
+bic_noNTL_model <- BIC(no_ntlmodel)
+```
+
+
+```{r simpleTableR2}
+
+r2_models_df <- tibble(
+  Modelo = c("1. log(NTL)", "2. log(NTL) + log(Población) + log(Área)", "3. log(NTL) + log(Área)", "4. log(Población) + log(Área)"),
+  "R2" = c(base_r2, extended_r2, no_pob_r2, no_ntl_r2),
+  "Adj R squared" = c(base_radjust2, extended_radjust2, no_pob_radjust2, no_ntl_radjust2),
+  "Coef. de Mallows" = c(mallow_base, mallow_extended, mallow_noPob, mallow_noNTL),
+  AIC = c(aic_base_model, aic_Extended_model, aic_noPob_model, aic_noNTL_model),
+  BIC = c(bic_base_model, bic_Extended_model, bic_noPob_model, bic_noNTL_model)
+) 
+
+get_twodigits <- function(x){
+  format(round(as.numeric(x), 2), nsmall = 2) 
+}
+
+formatted_r2_models_df <- r2_models_df %>% 
+  mutate(
+    R2 = get_twodigits(R2),
+    "Coef. de Mallows" = get_twodigits(`Coef. de Mallows`),
+    AIC = get_twodigits(AIC),
+    BIC = get_twodigits(BIC)
+  )
+
+
+flextable(formatted_r2_models_df %>% select(!c("Adj R squared"))) %>% autofit(.) %>% align(.,
+                                                                                 j = c(2, 3, 4, 5) ,
+                                                                                 align = "center",
+                                                                                 part = "all") %>% align(., j = 1, align = "left") %>%
+  font(fontname = "Times New Roman")
+
+```
+
+```{r parametersWay}
+compare_models(base_model, extended_model, noPob_model, no_ntlmodel, metrics = "common")
+```
+
+
+### Resumen Coefs in table
+
+```{r modelTableCoefs}
+library(sjPlot)
+tab_model(base_model, extended_model, noPob_model, no_ntlmodel, p.style = "stars",
+            pred.labels = c("Intercepto", "log(Mediana NTL)", "log(Área)", "log(Población)"),
+  dv.labels = c("Modelo base NTL", "Modelo completo", "Modelo extendido NTL", "Modelo extendido Población"),
+  string.est = "Estimación",
+  string.pred = "Coeficiente",
+  string.ci = "IC 95%",
+  encoding = "WINDOWS-1252",
+  show.obs = FALSE
+)
+```
+```{r BestModelTableBuild}
+library(gtsummary)
+BestModelTable <- tbl_regression(noPob_model, 
+               labels = list("(Intercept)" ~ "Intercepto", log_median_ntl ~ "log(Mediana NTL)", log_area ~ "log(Área)")
+               ) %>% 
+  add_glance_source_note(
+    label = list(r.squared ~ "R2", adj.r.squared ~ "R2 ajustada", df.residual ~ "gl", statistic ~ " F"),
+    include = c(r.squared, adj.r.squared, statistic, df.residual)) %>% 
+  modify_header(update = list(
+    label ~ "**Variable**",
+    estimate ~ "**Coeficiente**",
+    ci ~ "**IC 95%**",
+    p.value ~ "**P**")) %>% 
+  modify_footnote(everything() ~ NA, abbreviation = TRUE)
+
+as_flex_table(BestModelTable)  %>%
+  autofit(.) %>% 
+  compose(., 
+          j = 1,
+          i = c(1,2),
+          value = as_paragraph(
+            c("log(Median NTL)", "log(Área)")),
+          part = "body") %>% 
+  font(.,fontname = "Times New Roman")
+```
+
+
+# Analyze Outliers
+
+```{r OutlierDetection}
+
+
+# Boxplot stats to extract outliers
+ingreso_outliers = boxplot.stats(log_df2015$log_ingresoprom)$out
+
+ntl_outliers = boxplot.stats(log_df2015$log_median_ntl)$out
+
+poblacion_outliers = boxplot.stats(log_df2015$log_pob)$out
+
+area_outliers = boxplot.stats(log_df2015$log_area)$out
+```
+
+Results revel that Ingreso has 2 outliers and area too has 2. Whereas the others dont. The first is abnormality high and the second is abnormality low
+
+```{r OutliersShown}
+out_ingre <- which(log_df2015$log_ingresoprom %in% c(ingreso_outliers))
+df_2015[out_ingre, c("NOM_MUN", "Ingreso_prom_percap")]
+
+out_area <- which(log_df2015$log_area %in% c(area_outliers))
+df_2015[out_area, c("NOM_MUN", "area")]
+```
+
+```{r PlotOutliers}
+ggplot(log_df2015) +
+  aes(x = "", y = log_ingresoprom) +
+  geom_boxplot(fill = "#0c4c8a") +
+  theme_minimal()
+
+ggplot(log_df2015) +
+  aes(x = "", y = log_area) +
+  geom_boxplot(fill = "#0c4c8a") +
+  theme_minimal()
+
+```
+
+## Analyze the influence of the outliers
+
+## Cooks distance
+
+```{r Cooksdistance}
+library(olsrr)
+library(gghighlight)
+ols_plot_cooksd_chart(base_model)
+ols_plot_cooksd_chart(noPob_model)
+
+cook_df <- df_2015 %>% select(NOM_MUN) %>% st_drop_geometry()
+
+cook_df$cooks <- cooks.distance(noPob_model)
+
+cook_df %>% 
+  ggplot(aes(x=NOM_MUN, y=cooks)) +
+  geom_point() +
+  labs(x="", y="Cook's Distance", title = "Outliers ~ Distancia de Cook") +
+  gghighlight(NOM_MUN %in% c("Benito Juárez","Miguel Hidalgo", "Jaltenco", "Papalotla"))
+```
+
+## DFFITS de Welch y Kuhn
+
+```{r DFFITS}
+ols_plot_dffits(base_model)
+ols_plot_dffits(noPob_model)
+```
+
+## Standarized Residuals
+
+```{r ResidualsPlot}
+ols_plot_resid_stand(noPob_model)
+ols_plot_resid_stand(base_model)
+```
+
+## Residuals
+
+```{r resid}
+plot(fitted(base_model), resid(base_model), col = "grey", pch = 20,
+     xlab = "Fitted", ylab = "Residuals", main = "Data from Base NTL Model")
+abline(h = 0, col = "darkorange", lwd = 2)
+
+plot(fitted(extended_model), resid(base_model), col = "grey", pch = 20,
+     xlab = "Fitted", ylab = "Residuals", main = "Data from Extended Model")
+abline(h = 0, col = "darkorange", lwd = 2)
+
+plot(fitted(no_ntlmodel), resid(base_model), col = "grey", pch = 20,
+     xlab = "Fitted", ylab = "Residuals", main = "Data from No NTL Model")
+abline(h = 0, col = "darkorange", lwd = 2)
+
+```
+ 
+
+## R2 y Leverage
+
+```{r r2Levergae}
+ols_plot_resid_lev(noPob_model)
+```
+## Hadi Plot
+
+```{r hadiplot}
+ols_plot_hadi(base_model)
+ols_plot_hadi(extended_model)
+```
+
+
+# Analyze Collinearity
+
+## VIF
+
+```{r completevif}
+library(car)
+
+
+vif(extended_model)
+```
+```{r completevif_barplot}
+#create vector of VIF values
+vif_values <- vif(extended_model)
+
+names(vif_values) <- c("Log(Mediana NTL)", "Log(Área)", "Log(Población)")
+#create horizontal bar chart to display each VIF value
+barplot(vif_values, horiz = TRUE, col = "steelblue")
+
+#add vertical line at 5
+abline(v = 10, lwd = 3, lty = 2)
+```
+
+El alto valor del VIF en dos variables sugiere que el modelo se veria beneficiado de quitar una de las dos variables.
+
+```{r noPobvif}
+vif(noPob_model)
+```
+
+```{r noPobvif_barplot}
+#create vector of VIF values
+vif_values <- vif(noPob_model)
+
+#create horizontal bar chart to display each VIF value
+barplot(vif_values, main = "VIF Values", horiz = TRUE, col = "steelblue")
+
+#add vertical line at 5
+abline(v = 10, lwd = 3, lty = 2)
+```
+
+```{r noNTLvif}
+vif(no_ntlmodel)
+```
+
+```{r noNTLvif_barplot}
+#create vector of VIF values
+vif_values <- vif(no_ntlmodel)
+
+#create horizontal bar chart to display each VIF value
+barplot(vif_values, main = "VIF Values", horiz = TRUE, col = "steelblue")
+
+#add vertical line at 5
+abline(v = 10, lwd = 3, lty = 2)
+```
+
+
+
+
+# Analysis del mejor modelo
+
+"La construcción de un modelo es arte y ciencia, porque en la práctica no existe un procedimiento único que permita identificar el mejor modelo" (Dr. VARGAS video). En consecuencia, lo que se busca es empatar teoría con los resultados de un modelo que no viole los supuestos de la regresión lineal, a saber:
+
+  - __linealidad__, existen una relación lineal entre los parametros y la variable dependiente;
+  - __normalidad de los errores__, los errores se suponen que son normales, independientes e idénticamente distribuidos con media cero y varianza constante;
+  - __independencia__, las variables predictoras se supone que tienen correlación baja
+  ......Falta?
+  
+Anteriormente, se había calculado que existian 4 valores atípicos entre nuestros datos. Los primeros dos, Benito Juárez	y Miguel Hidalgo, corresponden a valores extremos referentes al ingreso promedio per cápita por municipio; los siguientes dos, Jaltenco y Papalotla, corresponden a municipios extremadamente extensos en su superficie. Se optó por no excluir estos valores con la intención de conducir un análisis completo para los 76 municipios de la zona metropolitana. Adicionalmente, se había observado en las gráficas de correlación que existia una fuerte correlación entre el valor de la mediana NTL y la variable de población. Recuérdese que la multicolinealidad está asociada con coeficiente de regresión inestables.
+
+Obsérvese en la tabla X cómo la colinealidad afecta la estimación del coeficiente del logaritmo de la población. Se han estimado cuatro modelos distintos. El primero estima el logaritmo del ingreso únicamente con el valor de la mediana NTL, después se estima un modelo considerando también las variables de población y area municipal. Se aprecia además que entre los modelos los dos con mejor $R^2$ son el modelo con todas las variables predictoras y el modelo sin la variable de población. Como sabemos que la mediana del valor lumínico municipal está fuertemente correlacionado con la variable de la población se construyen dos modelos para comparar los resultados al considerar la ausencia de cada una de esta variables. 
+
+[table below]
+
+```{r bestmodel_tab}
+tab_model(base_model, extended_model, noPob_model, no_ntlmodel, p.style = "stars",
+            pred.labels = c("Intercepto", "log(Mediana NTL)", "log(Área)", "log(Población)"),
+  dv.labels = c("Modelo base NTL", "Modelo completo", "Modelo extendido NTL", "Modelo extendido Población"),
+  string.est = "Estimación",
+  string.pred = "Coeficiente",
+  string.ci = "IC 95%",
+  encoding = "WINDOWS-1252",
+  show.obs = FALSE
+)
+```
+
+Para respaldar la decisión de construir modelos que examinen de forma separa la influencia de las variables correlacionadas, a continuación, se presenta la gráfica X con los resultados del análisis del factor inflación de varianza (VIF). En esta gráfica, se observa claramente cómo las variables de la mediana NTL y la población cuentan con un valor VIF por encima de 10, lo que evidencia su correlación. Tiene sentido entonces separar estas variables y examinar cuál modelo resulta más apropiado para estimar el ingreso promedio per cápita en los municipios de la ZMCM.  
+
+[GRAFICA VIF]
+
+Para seleccionar el modelo más apropiado, se elaboró la tabla X para contrastar los índices de ajuste pertinentes. Los dos más importantes, el criterio Bayesiano y el de Aikake, indican que el mejor modelo es aquel que para estos índices tenga menor valor absoluto. Lo anterior significaría que el mejor modelo sería aquel solamente utiliza el valor NTL para estimar el ingreso promedio, no obstante, el valor del coeficiente de Mallow es demasiado alto. Esto indica que el desempeño de la variable NTL en términos del cuadrado medio del error estandarizado para los datos observados del ingreso es deficiente. De tal forma que al considerar los tres índices de ajuste resulta que el modelo que excluye a la variable población es el que mejor minimiza los tres índices y maximiza la $R^2$..
+
+[Compare Models]
+
+| Especificación simple | Especificación log-log                         |
+|-----------------------|------------------------------------------------|
+| Modelo Base           | log(Y) = log(NTL)                              |
+| Modelo sin Población  | log(Y) = log(NTL) + log(Área)                  |
+| Modelo sin NTL        | log(Y) = log(Población) + log(Área)            |
+| Modelo Completo       | log(Y) = log(NTL) + log(Población) + log(Área) |
+
+
+
+Después de un análisis pormenorizado para seleccionar el mejor modelo, el modelo resultante es:
+$$
+log(Ingreso prom per cápita) = 3.85 + 0.25*log(mediana NTL) + -0.19*log(área)
+$$
+
+Este tiene un poder de explicación del 50 por ciento de la varianza del logaritmo del ingreso promedio per cápita municipal. 
+
+[table con coefs modelo resultante]
+
+```{r}
+flextable(r2_models_df %>% select(!c("Adj R squared")))
+
+parameters(noPob_model)
+```
+Los residuales se distribuyen masomenos de forma normal y tres valores saltan a la vista. Los dos cuyo ingreso es más alto y el municipio más extenso, Jaltenco.
+
+```{r plotModelDiagnostics}
+library(patchwork)
+model_df <- broom::augment(noPob_model)
+
+residualsPlot <-  model_df %>% 
+  ggplot(aes(
+  y= .resid, x = .fitted
+)) +
+  labs(y = "Residuales",
+       x = "Valores Estimados") +
+  geom_point() +
+  geom_abline(slope=0)
+
+
+residualsQQplot <- model_df %>% 
+  ggplot(
+  aes(sample=.std.resid)
+) +
+  labs(y = "Residuales Estandarizados",
+       x= "Quantiles Teóricos") +
+  stat_qq() +
+  stat_qq_line()
+
+
+normalityHeteroPlotsBestModel <- (residualsPlot + residualsQQplot)
+
+normalityHeteroPlotsBestModel
+
+plot(noPob_model)
+```
+
+```{r TestNormHet}
+NormHet_df  <- bind_rows(
+shapiro.test(resid(noPob_model)) %>%  tidy(),
+lmtest::bptest(noPob_model) %>%  tidy()
+) %>% 
+  select("Estadístico" = statistic, "P" = p.value) %>% 
+  mutate(
+    `Estadístico` = get_twodigits(`Estadístico`),
+    `P` = get_twodigits(`P`)
+  )
+
+NormHet_df$Prueba[1:2] <- c("Test de Normalidad Shapiro-Wilk", "Test de Breusch-Pagan de Heterocedasticidad")
+
+NormHet_df <- NormHet_df %>% 
+  select(Prueba, everything())
+
+
+flextable(NormHet_df) %>% 
+  autofit() %>% 
+  align( j = c(2,3), align = "center", part = "all") %>% 
+  font(.,fontname = "Times New Roman")
+```
+
+## Quantile Regression
+
+
+```{r quantileReg}
+library(quantreg)
+
+
+quan_model <- rq(nopob_model_formula, data=log_df2015, tau = 0.5)
+
+plot(log_ingresoprom ~ log_median_ntl, data = log_df2015, pch = 16, main = "mpg ~ wt")
+abline(lm(log_ingresoprom ~ log_median_ntl, data = log_df2015), col = "red", lty = 2)
+abline(rq(log_ingresoprom ~ log_median_ntl, data = log_df2015), col = "blue", lty = 2)
+legend("topright", legend = c("lm", "rq"), col = c("red", "blue"), lty = 2)
+```
+
+```{r quantStats}
+NormHet_quantmodel  <- bind_rows(
+shapiro.test(resid(quan_model)) %>%  tidy(),
+lmtest::bptest(quan_model) %>%  tidy()
+) %>% 
+  select("Estadístico" = statistic, "P" = p.value)
+
+NormHet_quantmodel$Prueba[1:2] <- c("Test de Normalidad Shapiro-Wilk", "Test de Breusch-Pagan de Heterocedasticidad")
+
+NormHet_quantmodel <- NormHet_quantmodel %>% 
+  select(Prueba, everything())
+
+
+flextable(NormHet_quantmodel) %>% 
+  autofit() %>% 
+  align( j = c(2,3), align = "center", part = "all")
+```
+
+
+
+## LM Weighted regresion
+
+```{r lmWeighted}
+#define weights to use
+wt <- 1 / lm(abs(noPob_model$residuals) ~ noPob_model$fitted.values)$fitted.values^2
+
+wts <-  1/(summary(noPob_model)$sigma)**2
+
+log_df2015$wts <- wts
+
+#perform weighted least squares regression
+wls_model <- lm(nopob_model_formula, data = log_df2015, weights=wts)
+
+plot(wls_model)
+par(mfrow=c(1,2))
+qqnorm(resid(wls_model), main = "Normal Q-Q Plot, fit_1", col = "darkgrey")
+qqline(resid(wls_model), col = "dodgerblue", lwd = 2)
+#produce residual vs. fitted plot
+plot(fitted(wls_model), residuals(wls_model))
+#add a horizontal line at 0 
+abline(0,0)
+```
+
+```{r TestWeightedModel}
+NormHet_wlsdf  <- bind_rows(
+shapiro.test(resid(wls_model)) %>%  tidy(),
+lmtest::bptest(wls_model) %>%  tidy()
+) %>% 
+  select("Estadístico" = statistic, "P" = p.value)
+
+NormHet_wlsdf$Prueba[1:2] <- c("Test de Normalidad Shapiro-Wilk", "Test de Breusch-Pagan de Heterocedasticidad")
+
+NormHet_wlsdf <- NormHet_wlsdf %>% 
+  select(Prueba, everything())
+
+
+flextable(NormHet_wlsdf) %>% 
+  autofit() %>% 
+  align( j = c(2,3), align = "center", part = "all")
+```
+## Eliminate outliers
+Eliminamos Miguel Hidalgo, Benito Juarez y Chimalhuacan from outliers in standardized residuals
+
+```{r eliminatedOutliers}
+noOutliers_df <- log_df2015[-c(13,15,65),]
+
+noOutliers_model <- lm(nopob_model_formula, data=noOutliers_df)
+
+plot(noOutliers_model)
+summary(noOutliers_model)
+summary(noPob_model)
+
+shapiro.test(resid(noOutliers_model)) %>%  tidy()
+lmtest::bptest(noOutliers_model) %>%  tidy()
+
+plot(noOutliers_df %>%  select(log_ingresoprom))
+```
+
+```{r plotNoOutlierModel}
+modelNoOut_df <- broom::augment(noOutliers_model)
+
+residualsPlot <-  modelNoOut_df %>% 
+  ggplot(aes(
+  y= .resid, x = .fitted
+)) +
+  labs(y = "Residuales",
+       x = "Valores Estimados") +
+  geom_point() +
+  geom_abline(slope=0)
+
+
+
+residualsQQplot <- modelNoOut_df %>% 
+  ggplot(
+  aes(sample=.std.resid)
+) +
+  labs(y = "Residuales Estandarizados",
+       x= "Quantiles Teóricos") +
+  stat_qq() +
+  stat_qq_line() 
+
+
+normalityHeteroPlotsBestModel <- (residualsPlot + residualsQQplot)
+
+normalityHeteroPlotsBestModel
+
+plot(noOutliers_model)
+```
+
+```{r NoOutlier_TestNormHet}
+NormHet_df  <- bind_rows(
+shapiro.test(resid(noOutliers_model)) %>%  tidy(),
+lmtest::bptest(noOutliers_model) %>%  tidy()
+) %>% 
+  select("Estadístico" = statistic, "P" = p.value) %>% 
+  mutate(
+    `Estadístico` = get_twodigits(`Estadístico`),
+    `P` = get_twodigits(`P`)
+  )
+
+NormHet_df$Prueba[1:2] <- c("Test de Normalidad Shapiro-Wilk", "Test de Breusch-Pagan de Heterocedasticidad")
+
+NormHet_df <- NormHet_df %>% 
+  select(Prueba, everything())
+
+
+flextable(NormHet_df) %>% 
+  autofit() %>% 
+  align( j = c(2,3), align = "center", part = "all") %>% 
+  font(.,fontname = "Times New Roman")
+```
+
+```{r NoOutliersBestModelTableBuild}
+library(gtsummary)
+BestModelTableNoOutliers <- tbl_regression(noOutliers_model, 
+               labels = list((Intercept) ~ "Intercepto", log_median_ntl ~ "log(Mediana NTL)", log_area ~ "log(Área)")
+               ) %>% 
+  add_glance_source_note(
+    label = list(r.squared ~ "R2", adj.r.squared ~ "R2 ajustada", df.residual ~ "gl", statistic ~ " F"),
+    include = c(r.squared, adj.r.squared, statistic, df.residual)) %>% 
+  modify_header(update = list(
+    label ~ "**Variable**",
+    estimate ~ "**Coeficiente**",
+    ci ~ "**IC 95%**",
+    p.value ~ "**P**")) %>% 
+  modify_footnote(everything() ~ NA, abbreviation = TRUE)
+
+as_flex_table(BestModelTableNoOutliers)  %>%
+  autofit(.) %>% 
+  compose(., 
+          j = 1,
+          i = c(1,2),
+          value = as_paragraph(
+            c("log(Median NTL)", "log(Área)")),
+          part = "body") %>% 
+  font(.,fontname = "Times New Roman")
+
+```
+
+
+## robust MASS
+
+
+```{r MassRobust}
+robustFittin_LM <- MASS::rlm(nopob_model_formula, data = log_df2015, weights=wts)
+
+plot(robustFittin_LM)
+
+shapiro.test(resid(robustFittin_LM)) %>%  tidy()
+lmtest::bptest(robustFittin_LM) %>%  tidy()
+```
+
+
+## Box Cox transformation
+
+```{r boxCoxTrans}
+distBCMod <- caret::BoxCoxTrans(log_df2015$log_ingresoprom)
+
+boxCox_df <- cbind(log_df2015, logIngreso_new=predict(distBCMod, log_df2015$log_ingresoprom))
+      
+lmMod_bc <- lm(logIngreso_new ~ log_median_ntl + log_area, data=boxCox_df)
+
+lmtest::bptest(lmMod_bc)
+
+plot(lmMod_bc)
+```
+
+
+## Observed vs estimated Ingreso
+
+Al comparar los valores observados del logaritmo del ingreso promedio municipal con los valores predecidos por el modelo encontramos que las observaciones se ajustan bastante bien a la linea de regresión, excepto por 2 valores. Estos valores corresponden a las 2 observaciones atípicas que se habían identificado: Benito Juaréz y Miguel Hidalgo. Para estos municipios nuestro modelo subestima el valor verdadero del ingreso promedio per cápita. 
+
+```{r predict2015}
+library(ggplot2)
+prediction2015 <- augment(noPob_model) %>% arrange(desc(log_ingresoprom)) %>% 
+  select(log_ingresoprom, .fitted, everything())
+
+
+prediction2015 %>% 
+  ggplot(aes(.fitted, log_ingresoprom)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+
+corr.test(prediction2015$.fitted, prediction2015$log_ingresoprom)
+```
+
+
+# Model inference [PENDING]
+
+## Transform 2020 data
+
+```{r skim2020}
+df_2020 %>% 
+  skimr::skim()
+```
+
+
+```{r Transform2020data}
+colnames(df_2020)[3:4] <- c("median_sum_ntl", "pob_total")
+
+log_df2020 <- df_2020 %>%
+  mutate(
+    area = as.numeric(area),
+  log_median_ntl = log10(median_sum_ntl),
+  log_pob =  log10(pob_total),
+  log_area = log10(area)
+  )
+
+
+log_df2020 %>% 
+  skimr::skim()
+```
+
+
+
+## Map 2020 NTL data
+
+2020 MAP VS 2015
+
+```{r 3D2020}
+library(rayshader)
+library(viridis)
+
+gg_mx2020NTL <- ggplot() + 
+  geom_sf(data = df_2020, aes(fill = median_sum_ntl)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+gg_mx2015NTL <- ggplot() + 
+  geom_sf(data = df_2015_tidy, aes(fill = median_sum_ntl)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+
+par(mfrow = c(2, 2))
+
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+
+plot_gg(gg_mx2020NTL, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+
+
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+plot_gg(gg_mx2020NTL, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+```
+
+
+
+## Inference for 2020 data with best model
+
+```{r predictIngreso2020}
+pred_vars <- log_df2020 %>% 
+  select(log_median_ntl, log_area, log_pob, NOM_MUN)
+
+#Remove Outliers
+pred_vars[c(13,15,65), c(1,2)] <- 0
+
+prediction_ci <- predict(noOutliers_model, newdata=pred_vars, interval="predict") 
+```
+
+
+```{r plot_inference}
+plot_data <- df_2020 %>% 
+  cbind(prediction_ci) %>% 
+  select(NOM_MUN, fit, lwr, upr)
+# and plot
+ggplot(plot_data, aes(x = NOM_MUN)) + 
+  geom_point(aes(y = fit)) + 
+  geom_errorbar(aes(ymin = lwr, 
+                    ymax = upr),
+                width = .2) + 
+  labs(y = "Ingreso promedio per capita")
+```
+
+```{r 3dMapIngresoValues}
+library(patchwork)
+map_df2015 <- df_2015_tidy %>% 
+  select("Ingreso prom." = Ingreso_prom_percap, NOM_MUN, median_sum_ntl)
+
+map_df2020pred <- pred_vars %>% 
+  cbind(prediction_ci) %>% 
+  select(NOM_MUN, fit, log_median_ntl) %>% 
+  mutate(
+    "Ingreso prom. pred." = 10^(fit), #because log base 10
+    "Mediana NTL" = 10^(log_median_ntl)
+  ) %>% 
+  select(log_ingreso_prom=fit, everything())
+
+NoOutmap_df2020pred <- map_df2020pred %>% slice(-c(13,15,65))
+
+
+gg_mx2020Ingreso <- ggplot() + 
+  geom_sf(data = NoOutmap_df2020pred, aes(fill = `Ingreso prom. pred.`)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+gg_mx2015Ingreso <- ggplot() + 
+  geom_sf(data = map_df2015, aes(fill = `Ingreso prom.`)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+PatchIngreso <- (gg_mx2015Ingreso + gg_mx2020Ingreso)
+
+PatchIngreso
+```
+
+```{r 3DIngreso}
+library(rayshader)
+par(mfrow = c(2, 2))
+plot_gg(gg_mx2015Ingreso, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+plot_gg(gg_mx2020Ingreso, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+
+
+plot_gg(gg_mx2015Ingreso, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+plot_gg(gg_mx2020Ingreso, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+```
+
+
+```{r changeinValues}
+change_df <- map_df2020pred %>% 
+  transmute(
+    change_NTL = (log_median_ntl - log_df2015$log_median_ntl)/log_df2015$log_median_ntl,
+    change_Ingreso = (log_ingreso_prom - log_df2015$log_ingresoprom)/log_df2015$log_ingresoprom,
+    Municipio = NOM_MUN
+  )
+change_df <- change_df %>% slice(-c(13,15,65))
+```
+
+```{r loadCatdata}
+allDrData <- haven::read_dta(
+  here::here("Data", "mun_area_metropolitana.dta")
+)
+```
+
+```{r highlightCDMX}
+mask_cdmx <- allDrData %>% 
+  #entidad 1 es la cdmx y 3 es hidalgo
+  filter(Entidad %in% c(1,3)) %>% 
+  #cve_mun es la clave geo
+  select(cve_mun) %>% 
+  mutate(
+    cve_geo = as.factor(cve_mun)
+  )
+
+cdmxHidalgo_data <- df_2015 %>% 
+  filter(as.factor(CVE_GEO) %in% mask_cdmx$cve_geo) %>% 
+  select(NOM_MUN)
+
+plot(cdmxHidalgo_data)
+```
+
+
+```{r 3dChangeMaps}
+library(ggsn)
+library(patchwork)
+
+changeNTL_map <- ggplot() + 
+  geom_sf(data = change_df, aes(fill = change_NTL)) +
+  geom_sf(data=cdmxHidalgo_data, aes(color=NOM_MUN), show.legend = FALSE, alpha = 0, size = 1) +
+  scale_y_continuous(labels=scales::percent) +
+  scico::scale_fill_scico(palette = 'berlin') +
+  theme(axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank()) +
+  xlab(label="7a) Cambio en la intensidad lumínica")
+
+
+
+changeIngreso_map <- ggplot() + 
+  geom_sf(data = change_df, aes(fill = change_Ingreso)) +
+  geom_sf(data=cdmxHidalgo_data, aes(color=NOM_MUN), show.legend = FALSE, alpha = 0, size = 1) +
+  scico::scale_fill_scico(palette = 'berlin') +
+  theme(        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        legend.title = element_blank()) +
+  xlab(label="7b) Cambio en el Ingreso")
+
+north_changeNTL_map <- changeNTL_map +
+  blank() +
+  north(change_df)
+  
+north_changeIngreso_map <- changeIngreso_map +
+  blank() +
+  north(change_df)
+
+
+library(gridExtra)
+
+grid.arrange(north_changeNTL_map, north_changeIngreso_map, ncol = 2, nrow = 1,
+             bottom = textGrob("7a) Cambio en la intensidad lumínica                                                                                                                    7b) Cambio en el Ingreso", gp=gpar(fontsize=10), vjust = -0.3 ))
+```
+
+```{r 3dchangemap}
+library(rayshader)
+par(mfrow = c(2, 2))
+
+plot_gg(changeNTL_map, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+plot_gg(changeIngreso_map, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+
+
+plot_gg(changeNTL_map, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+plot_gg(changeIngreso_map, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+```
+
+```{r toploserChange}
+library(gt)
+
+topvalues <- change_df %>% 
+  top_n(change_Ingreso,n=5) %>% 
+  arrange(desc(change_Ingreso))
+
+lowvalues <- change_df %>% 
+  arrange(change_Ingreso, ascending=TRUE) 
+
+top5low5_change <- rbind(topvalues, lowvalues[1:5,]) %>% 
+  select(Municipio, "cambio en Ingreso" = change_Ingreso, "cambio en NTL" = change_NTL) %>%  st_drop_geometry() 
+
+top5low5_change$Municipio[c(8,10)] <- c("Nezahualcóyotl", "Tecámac")
+
+toplowOutlied2020 <- gt(top5low5_change) %>% 
+  fmt_number(
+    columns = c(2,3),
+    decimals  = 3
+  ) %>% 
+  cols_align(
+  align = c("center"),
+  columns = c(2:3)
+  ) %>% 
+   opt_table_font(
+    font = list(
+      google_font(name = "Source Serif Pro")
+    )
+  )
+
+toplowOutlied2020
+```
+
+
+## GINI estimation
+
+
+
+```{r gini}
+library(ineq)
+ineq(10^(prediction_ci[,1]), type="Gini")
+ineq(df_2015_tidy$Ingreso_prom_percap[-c(13,15,65)], type = "Gini")
+```
+El Gini para la zona metropolitana de la Ciudad de México es bastante bajo 0.177 debido a que la gran mayoria de municipios tiene un ingreso promedio per cápita modesto, mientras que únicamente dos municipios --Benito Juaréz y Miguel Hidalgo-- tienen un ingreso elevado. Ahora bien, si consideramos los conglomerados agrupados por características socioeconómicas en Vargas (coord., 2020) podemos estimar que la desigualdad en estos grupos es la siguiente.....
+
+```{r giniManuela}
+Gini_df <- prediction_ci %>% 
+  transmute(
+    pred_ingreso = 10^(fit)
+  )
+
+Gini_df[76 + 1,] <- sum(Gini_df$pred_ingreso)
+
+Gini_df <- Gini_df %>% 
+  mutate(
+    percentage = pred_ingreso / pred_ingreso[77]
+  ) %>% 
+  arrange(desc(pred_ingreso))
+
+plot(Gini_df[-77,], col="darkred",lwd=2)
+```
+
+### Estimacion con modelo Extremo
+
+```{r predVarsOutliers}
+pred_varsOutliers <- log_df2020 %>% 
+  select(log_median_ntl, log_area, log_pob, NOM_MUN)
+
+
+prediction_ciOutliers <- predict(noPob_model, newdata=pred_varsOutliers, interval="predict") %>% as.data.frame()
+
+#With outliers
+ineq(10^(prediction_ciOutliers$fit), type="Gini")
+#With no outliers
+ineq(10^(prediction_ci[,1]), type="Gini")
+#Year 2015 no outliers
+ineq(df_2015_tidy$Ingreso_prom_percap[-c(13,15,65)], type = "Gini")
+#Year 2015 outliers
+ineq(df_2015_tidy$Ingreso_prom_percap, type = "Gini")
+
+```
+
+```{r desigualdadLights}
+
+#With outliers 2015
+ineq(df_2015$median_sum_ntl, type="Gini")
+#With outliers 2020
+ineq(df_2020$median_sum_ntl, type="Gini")
+```
+
+
+# Sources
+https://www.tidymodels.org/start/models/

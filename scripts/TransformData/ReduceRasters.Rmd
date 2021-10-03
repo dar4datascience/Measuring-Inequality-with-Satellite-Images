@@ -1,0 +1,398 @@
+---
+title: "Reduce and Extract data from the VNP46A1"
+author: "Daniel Amieva Rdz"
+date: "3/5/2021"
+output:
+  rmdformats::material:
+    highlight: kate
+    self_contained: true
+    code_folding: show
+    thumbnails: true
+    gallery: true
+    fig_width: 4
+    fig_height: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(terra)
+library(sf)
+here::i_am("Scripts/TransformSatData/ReduceRasters.Rmd")
+
+```
+
+# Load data
+
+```{r load-geo-data}
+geotiffs_in_file <- list.files(
+  here::here("Data/VNP46A12015and2020Geotiff")
+)
+```
+
+
+```{r load-marcogeo2020}
+cdmx_muns2020 <- sf::st_read(
+  here::here(
+    "Data/MarcoGeo2020/cdmx", "09mun.shp"
+  ), quiet = TRUE, type = 3
+)
+
+  
+edo_mun2020 <- sf::st_read(
+  here::here(
+    "Data/MarcoGeo2020/edomex", "15mun.shp"
+  ), quiet = TRUE, type = 3
+)
+
+
+  
+hidalgo_mun2020 <- sf::st_read(
+  here::here(
+    "Data/MarcoGeo2020/hidalgo", "13mun.shp"
+  ), quiet = TRUE, type = 3
+)
+  
+
+```
+
+```{r load-marcogeo2015}
+
+marcogeo_mun2015 <- sf::st_read(
+  here::here(
+    "Data/MarcoGeoestadistico_2014_para_EncuestaInterCensal_2015", "MUNICIPIOS.shp"
+  ), quiet = TRUE, type = 3
+)
+  
+
+```
+
+## View los mun de los estados
+
+```{r plot-all-muns2020-separated, eval=FALSE}
+plot(cdmx_muns2020[,c("CVE_MUN", "geometry")])
+
+plot(edo_mun2020[,c("CVE_MUN", "geometry")])
+
+plot(hidalgo_mun2020[,c("CVE_MUN", "geometry")])
+```
+
+```{r plot-all-muns2015}
+plot(marcogeo_mun2015[, c("CVE_MUN", "geometry")])
+```
+
+```{r combine2020-shapes}
+library(tidyr)
+library(dplyr)
+zona_urbana_2020 <- rbind(cdmx_muns2020 %>% dplyr::select(CVEGEO, CVE_ENT, CVE_MUN), edo_mun2020 %>% dplyr::select(CVEGEO, CVE_ENT, CVE_MUN), hidalgo_mun2020 %>% dplyr::select(CVEGEO, CVE_ENT, CVE_MUN)
+                         )
+
+plot(zona_urbana_2020[,c("CVE_MUN", "geometry")])
+```
+
+
+# Combine Raster Satellite Images
+
+Create the multi-band image using the filenames.
+
+## Yearly
+
+```{r read-multiband}
+#Boolean mask
+files_2015 <- stringr::str_detect(geotiffs_in_file, 
+                                  stringr::regex(
+                                    "VNP46A12015and2020GeotiffDNB_At_Sensor_Radiance_500mVNP46A1.A2015*"
+                                  )) 
+
+files_2020 <- stringr::str_detect(geotiffs_in_file, 
+                                  stringr::regex(
+                                    "VNP46A12015and2020GeotiffDNB_At_Sensor_Radiance_500mVNP46A1.A2020*"
+                                  )) 
+# subset
+VNP46A1_ZMCM_2015 <- geotiffs_in_file[files_2015]
+VNP46A1_ZMCM_2020 <- geotiffs_in_file[files_2020]
+  
+
+main_path <- here::here("Data/VNP46A12015and2020Geotiff")
+
+file_names_2015 <- paste0(main_path, "/", VNP46A1_ZMCM_2015)
+
+file_names_2020 <- paste0(main_path, "/", VNP46A1_ZMCM_2020)
+
+#Read accordingly
+raw_ntl_2015 <- terra::rast(
+  file_names_2015
+)
+
+raw_ntl_2020 <- terra::rast(
+  file_names_2020
+)
+
+```
+
+Para poder sacar estadisticas para las mun dentro dela ZMCM, necesitamos obtener los poligonos del censo 2020 para las areas de interes.
+
+## Obtain base muns
+
+Sabemos que `df_desigualdadMunicipal` contiene a los 76 municipios de interes que conforman a la Zona Metropolitana de la CDMX, por ......
+
+Despues, necesitamos extraer el codigo de las mun, a partir de los municipios.
+
+
+```{r load-use-known-municipios}
+reference_data <- haven::read_dta(
+  here::here("Data", "Datos_EBPHrururb_IndDes_Municipal.dta"
+             )
+)
+```
+
+```{r add-ref-colums}
+reference_df <- as_tibble(reference_data) %>%
+    mutate(cve_geo = cve_mun
+           ) %>%
+  dplyr::select(cve_geo)
+  
+  
+```
+
+Sabemos que en la ZMCM existen 76 municipios y en los datos del Dr. Vargas Chanes hay `r length(unique(df_desigualdadMunicipal$cve_mun))`
+
+En todo Mexico, en el MarcoGeo2014, que se utilizo para levantar la muestra de la Encuesta Intercensal 2015, existen `r length(unique(marcogeo_mun2015$CVE_MUN))` municipios
+
+```{r filter-muns}
+#Hacer el matcheo de municipios para extraer muns
+#PRECISE MUNS AND DETERMINE DIFFERENCES
+muns_zmcm_2015 <- marcogeo_mun2015 %>%
+  mutate(CVE_GEO = paste0(CVE_ENT, CVE_MUN)
+  ) %>%
+  filter(CVE_GEO %in% reference_df$cve_geo)
+
+
+```
+
+
+```{r filter-zmcm2020}
+#Modify clave en zona metro.. CHECK FUTURELY
+zona_metro_2020 <- zona_urbana_2020 %>%
+  filter(CVEGEO %in% reference_df$cve_geo)
+```
+
+```{r keep-mun-geometry}
+cve_mun2015_geometries <- muns_zmcm_2015[,c('CVE_GEO','NOM_MUN', 'geometry')]
+```
+
+Visual Check
+
+```{r plot-cve2015}
+plot(cve_mun2015_geometries %>% dplyr::select(CVE_GEO, geometry))
+```
+
+```{r plot-cve2020}
+plot(zona_metro_2020 %>% dplyr::select(CVE_MUN, geometry))
+```
+
+Shapefiles have different CRS than satellite files
+
+```{r align-crs}
+#align crs
+cve_mun2015_geometries <- sf::st_transform(
+  cve_mun2015_geometries, 
+  crs(raw_ntl_2015)
+  )
+
+cve_mun2020_geometries <- sf::st_transform(
+  zona_metro_2020, 
+  crs(raw_ntl_2020)
+  )
+
+
+
+```
+
+### Visual check of previous transformations
+
+```{r plot-muns, cache=TRUE, include=FALSE}
+out_shp <- "muns2015ZMCM.shp"
+
+sf::st_write(
+  cve_mun2015_geometries,
+  here::here("Data/Outputs", out_shp),
+  overwrite = TRUE
+)
+
+out_shp <- "muns2020ZMCM.shp"
+
+sf::st_write(
+  cve_mun2020_geometries,
+  here::here("Data/Outputs", out_shp),
+  overwrite = TRUE
+)
+```
+
+
+```{r selec-ZMCM}
+
+muns_2015_file <- terra::vect(
+  here::here("Data/Outputs", "muns2015ZMCM.shp")
+)
+
+muns_2020_file <-terra::vect(
+  here::here("Data/Outputs", "muns2020ZMCM.shp")
+)
+
+n <- size(muns_2015_file)
+plot(muns_2015_file, col=rainbow(n))
+
+```
+
+Hay `r length(unique(muns_2015_file$CVE_GEO))` muns
+
+
+Reducimos el tamano del raster para que el computo zonal sea mas eficiente, creo.
+
+```{r crop-rasters}
+# check extent
+terra::ext(muns_2015_file)
+terra::ext(raw_ntl_2015)
+
+ntl_2015_cropped <- terra::crop(raw_ntl_2015, 
+                               terra::ext(muns_2015_file))
+
+#PENDING CHECK FOR AGEBS AND MARCO GEO 2020 !!!!!!!!!!!!!!!!!!!!!!
+ntl_2020_cropped <- terra::crop(raw_ntl_2020, 
+                                terra::ext(muns_2020_file))
+
+plot(ntl_2015_cropped)
+terra::ext(ntl_2020_cropped)
+```
+
+
+# Aggregacion por muns
+
+## Extract vs Zonal
+```{r extract-stats-2015, message=FALSE, warning=FALSE}
+extract_mean_2015 <- terra::extract(ntl_2015_cropped, muns_2015_file,fun = 'mean')
+extract_min_2015 <- terra::extract(ntl_2015_cropped, muns_2015_file, fun = 'min')
+extract_max_2015 <- terra::extract(ntl_2015_cropped, muns_2015_file, fun = 'max')
+extract_median_2015 <- terra::extract(ntl_2015_cropped, muns_2015_file, fun = 'median')
+extract_sum_2015 <- terra::extract(ntl_2015_cropped, muns_2015_file, fun = 'sum')
+```
+
+
+```{r aggregation, eval=FALSE}
+# object conversion
+raster_mun <- terra::rasterize(muns_2015_file, ntl_2015_cropped)
+
+# math
+aggregation_mean_2015 <- terra::zonal(ntl_2015_cropped, raster_mun,fun = "mean", na.rm=TRUE)
+aggregation_min_2015 <- terra::zonal(ntl_2015_cropped, raster_mun, fun = "min", na.rm=TRUE)
+aggregation_max_2015 <- terra::zonal(ntl_2015_cropped, raster_mun, fun = "max", na.rm=TRUE)
+aggregation_median_2015 <- terra::zonal(ntl_2015_cropped, raster_mun, fun = "median", na.rm=TRUE)
+```
+
+
+Vemos que da casi lo mismo usar `extract` de `zonal`, pero `extract` nos devuelve la misma longitud de vector que necesitamos para, facilmente, incluirla a un `spatial dataframe`.
+
+```{r extract-stats-2020, message=FALSE, warning=FALSE}
+# GET RASTER 2020!!!!!!!!!!!!!!!!
+extract_mean_2020 <- terra::extract(ntl_2020_cropped, muns_2020_file, fun = 'mean')
+extract_min_2020 <- terra::extract(ntl_2020_cropped, muns_2020_file, fun = 'min')
+extract_max_2020 <- terra::extract(ntl_2020_cropped, muns_2020_file, fun = 'max')
+extract_median_2020 <- terra::extract(ntl_2020_cropped, muns_2015_file, fun = 'median')
+extract_sum_2020 <- terra::extract(ntl_2020_cropped, muns_2020_file, fun = 'sum')
+```
+
+## Append the values to a spatial object
+
+Extrae el valor de la mediana.
+
+```{r append-stats-2015}
+
+mun_ntl_2015 <- muns_zmcm_2015 %>%
+  mutate(
+    median_ntl = apply(extract_median_2015, 1, FUN = 'median'),
+    mean_ntl = apply(extract_mean_2015, 1, FUN = 'median'),
+    max_ntl = apply(extract_max_2015, 1, FUN = 'median'),
+    min_ntl = apply(extract_min_2015, 1, FUN = 'median'),
+    median_sum_ntl = apply(extract_sum_2015, 1, FUN = 'median')
+  )
+  
+
+plot(mun_ntl_2015[,"median_sum_ntl"])
+```
+## 3D Plots
+
+```{r plots3d}
+library(rayshader)
+library(ggplot2)
+library(viridis)
+
+gg_mx2015NTL <- ggplot() + 
+  geom_sf(data = mun_ntl_2015, aes(fill = median_sum_ntl)) +
+  scale_fill_viridis_c(option = "C") +
+  theme_bw() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank())
+
+par(mfrow = c(1, 2))
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, raytrace = FALSE, preview = TRUE)
+plot_gg(gg_mx2015NTL, width = 5, height = 4, scale = 300, zoom = 0.5, multicore = TRUE, windowsize = c(1000, 800))
+
+Sys.sleep(0.2)
+render_snapshot(clear = TRUE)
+
+```
+
+```{r append-stats-2020}
+
+
+mun_ntl_2020 <- muns_zmcm_2015 %>%
+  mutate(
+    median_ntl = apply(extract_median_2020, 1, FUN = 'median'),
+    mean_ntl = apply(extract_mean_2020, 1, FUN = 'median'),
+    max_ntl = apply(extract_max_2020, 1, FUN = 'median'),
+    min_ntl = apply(extract_min_2020, 1, FUN = 'median'),
+    median_sum_ntl = apply(extract_sum_2020, 1, FUN = 'median')
+  )
+  
+
+plot(mun_ntl_2020[,"median_sum_ntl"])
+```
+
+### Save results
+
+```{r save-results-1}
+sf::st_write(
+  mun_ntl_2015,
+  here::here("Data/Outputs", "NTL_2015_stats.shp")
+)
+
+sf::st_write(
+  mun_ntl_2020,
+  here::here("Data/Outputs", "NTL_2020_stats.shp")
+)
+```
+
+
+## Monthly
+
+Test code
+
+```{r date-fixation, eval=FALSE}
+ntl_perday_2015_mean <- extract_mean_2015 %>%
+  pivot_longer(cols = !c(ID), names_to = "NombreLargo", values_to = "MeanValue") %>%
+  mutate(
+    #Grab the date component in the name
+    fecha_format = stringr::str_sub(NombreLargo, start=-9, end=-7) %>% as.numeric(),
+    fecha = as.Date(fecha_format-1,origin = "2015-01-01")
+  ) %>%
+  dplyr::select(ID, fecha, MeanValue)
+```
+
+
+## Weekly
