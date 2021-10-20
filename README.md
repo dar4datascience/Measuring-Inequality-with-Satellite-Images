@@ -51,6 +51,9 @@ If you got all the way down here you might be interesting in reading my bachelor
 
 [PENDING LINK TO FINAL THESIS VERSION]
 
+Below a plot depicting the relationship between __average per capita municipal data__ with the aggregated __vnp46A1 median municipal__ values.
+
+![this scatter plot depicts the quas linear relationship between average income and ligth intensity per municipality. at the borders shows marginal distribution plots which are histograms at the edges of the scatter plot](https://github.com/dar4datascience/Measuring-Inequality-with-Satellite-Images/blob/Prototype-and-Bachelors-Thesis/proyect_snapshots/marginalNTLtoIngreso.png)
 
 ## STAGE 2: Massive data download of the VNP46A3 and A4
 
